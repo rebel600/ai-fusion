@@ -1,42 +1,40 @@
-type Listener = (
-  payload: any
-) => void;
+type Listener = (payload: any) => void;
 
-export class EventEmitter {
+class EventEmitter {
+  private listeners: Record<string, Listener[]> = {};
 
-  private listeners:
-    Record<
-      string,
-      Listener[]
-    > = {};
-
-  on(
-    event: string,
-    callback: Listener
-  ) {
-
-    if (
-      !this.listeners[event]
-    ) {
-
+  on(event: string, callback: Listener) {
+    if (!this.listeners[event]) {
       this.listeners[event] = [];
     }
 
-    this.listeners[event]
-      .push(callback);
+    this.listeners[event].push(callback);
   }
 
-  emit(
-    event: string,
-    payload: any
-  ) {
+  emit(event: string, payload: any) {
+    const handlers = this.listeners[event] || [];
 
-    const handlers =
-      this.listeners[event] || [];
-
-    handlers.forEach(
-      (handler) =>
-        handler(payload)
-    );
+    handlers.forEach((handler) => handler(payload));
   }
+
+  off(event: string, callback: Listener) {
+    const handlers = this.listeners[event];
+
+    if (!handlers) {
+      return;
+    }
+
+    this.listeners[event] = handlers.filter((handler) => handler !== callback);
+  }
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __eventBus: EventEmitter | undefined;
+}
+
+export const globalEventBus = global.__eventBus || new EventEmitter();
+
+if (!global.__eventBus) {
+  global.__eventBus = globalEventBus;
 }

@@ -8,10 +8,6 @@ import {
 } from "./workflow-engine";
 
 import {
-  Router,
-} from "./router";
-
-import {
   RetryEngine,
 } from "./retry-engine";
 
@@ -20,7 +16,7 @@ import {
 } from "./circuit-breaker";
 
 import {
-  EventEmitter,
+  globalEventBus,
 } from "./event-emitter";
 
 import {
@@ -32,9 +28,6 @@ export class Manager {
   private workflowEngine =
     new WorkflowEngine();
 
-  private router =
-    new Router();
-
   private registry =
     new WorkerRegistry();
 
@@ -44,11 +37,53 @@ export class Manager {
   private breaker =
     new CircuitBreaker();
 
-  private events =
-    new EventEmitter();
+  private getWorkerForStage(
+    stage: string
+  ) {
 
-  getEventEmitter() {
-    return this.events;
+    switch (stage) {
+
+      case "PROCESSING":
+        return "DATA_PROCESSOR";
+
+      case "WRITING":
+        return "WRITER";
+
+      case "QA":
+        return "QA";
+
+      case "FINALIZING":
+        return "FINALIZER";
+
+      default:
+        return null;
+    }
+  }
+
+  private getNextStage(
+    stage: string
+  ) {
+
+    switch (stage) {
+
+      case "CREATED":
+        return "PROCESSING";
+
+      case "PROCESSING":
+        return "WRITING";
+
+      case "WRITING":
+        return "QA";
+
+      case "QA":
+        return "FINALIZING";
+
+      case "FINALIZING":
+        return "COMPLETED";
+
+      default:
+        return "COMPLETED";
+    }
   }
 
   async run(
@@ -56,6 +91,9 @@ export class Manager {
   ) {
 
     let currentState = state;
+
+    let shouldAdvanceStage =
+      true;
 
     try {
 
@@ -69,32 +107,58 @@ export class Manager {
             currentState
           );
 
-        const nextStage =
-          this.router.getNextStage(
-            currentState.currentStage
-          );
+        // =========================
+        // STAGE TRANSITION
+        // =========================
 
-        currentState =
-          this.workflowEngine
-            .transitionStage(
-              currentState,
-              nextStage
+        if (shouldAdvanceStage) {
+
+          const nextStage =
+            this.getNextStage(
+              currentState.currentStage
             );
 
-        this.events.emit(
-          "workflow:stage",
+          currentState =
+            this.workflowEngine
+              .transitionStage(
+                currentState,
+                nextStage
+              );
 
-          {
-            workflowId:
-              currentState.workflowId,
+          globalEventBus.emit(
+            "workflow:stage",
 
-            stage:
-              currentState.currentStage,
-          }
-        );
+            {
+              workflowId:
+                currentState.workflowId,
+
+              stage:
+                currentState.currentStage,
+            }
+          );
+        }
+
+        shouldAdvanceStage =
+          true;
+
+        // =========================
+        // COMPLETION CHECK
+        // =========================
+
+        if (
+          currentState.currentStage ===
+          "COMPLETED"
+        ) {
+
+          break;
+        }
+
+        // =========================
+        // WORKER RESOLUTION
+        // =========================
 
         const workerName =
-          this.router.getNextWorker(
+          this.getWorkerForStage(
             currentState.currentStage
           );
 
@@ -102,7 +166,7 @@ export class Manager {
           continue;
         }
 
-        this.events.emit(
+        globalEventBus.emit(
           "worker:start",
 
           {
@@ -145,7 +209,7 @@ export class Manager {
             request
           );
 
-        this.events.emit(
+        globalEventBus.emit(
           "worker:complete",
 
           {
@@ -159,6 +223,10 @@ export class Manager {
               response.success,
           }
         );
+
+        // =========================
+        // FAILURE HANDLING
+        // =========================
 
         if (!response.success) {
 
@@ -190,7 +258,7 @@ export class Manager {
                 new Date(),
             };
 
-            this.events.emit(
+            globalEventBus.emit(
               "workflow:failed",
 
               {
@@ -219,7 +287,7 @@ export class Manager {
               new Date(),
           };
 
-          this.events.emit(
+          globalEventBus.emit(
             "workflow:retry",
 
             {
@@ -232,8 +300,19 @@ export class Manager {
             }
           );
 
+          // IMPORTANT:
+          // Retry same stage again
+          // without advancing.
+
+          shouldAdvanceStage =
+            false;
+
           continue;
         }
+
+        // =========================
+        // QA REVISION LOOP
+        // =========================
 
         if (
           workerName === "QA"
@@ -256,7 +335,7 @@ export class Manager {
                 new Date(),
             };
 
-            this.events.emit(
+            globalEventBus.emit(
               "workflow:revision",
 
               {
@@ -276,9 +355,28 @@ export class Manager {
                   "WRITING"
                 );
 
+            globalEventBus.emit(
+              "workflow:stage",
+
+              {
+                workflowId:
+                  currentState.workflowId,
+
+                stage:
+                  "WRITING",
+              }
+            );
+
+            shouldAdvanceStage =
+              false;
+
             continue;
           }
         }
+
+        // =========================
+        // SUCCESSFUL OUTPUT
+        // =========================
 
         currentState = {
           ...currentState,
@@ -304,24 +402,37 @@ export class Manager {
         };
       }
 
-      this.events.emit(
-        "workflow:completed",
+      // =========================
+      // FINAL STATE HANDLING
+      // =========================
 
-        {
-          workflowId:
-            currentState.workflowId,
-        }
-      );
+      if (
+        currentState.currentStage ===
+        "COMPLETED"
+      ) {
 
-      return {
-        ...currentState,
+        globalEventBus.emit(
+          "workflow:completed",
 
-        status: "SUCCESS",
-      };
+          {
+            workflowId:
+              currentState.workflowId,
+          }
+        );
+
+        return {
+          ...currentState,
+
+          status:
+            "SUCCESS",
+        };
+      }
+
+      return currentState;
 
     } catch (error) {
 
-      this.events.emit(
+      globalEventBus.emit(
         "workflow:error",
 
         {

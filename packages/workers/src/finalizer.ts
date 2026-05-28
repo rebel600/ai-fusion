@@ -1,29 +1,21 @@
-import {
-  WorkerRequest,
-} from "@repo/schemas";
+import { WorkerRequest } from "@repo/schemas";
 
-import { BaseWorker }
-from "./base-worker";
+import { BaseWorker } from "./base-worker";
 
-export class FinalizerWorker
-  extends BaseWorker {
+import { sleep } from "./utils";
 
+export class FinalizerWorker extends BaseWorker {
   name = "FINALIZER";
 
-  async execute(
-    input: WorkerRequest
-  ) {
+  async execute(input: WorkerRequest) {
     try {
+      await sleep(1000);
 
       return this.success({
         result: input.input,
       });
-
     } catch {
-
-      return this.failure([
-        "Finalization failed",
-      ]);
+      return this.failure(["Finalization failed"]);
     }
   }
 }

@@ -1,31 +1,23 @@
-import {
-  WorkerRequest,
-} from "@repo/schemas";
+import { WorkerRequest } from "@repo/schemas";
 
-import { BaseWorker }
-from "./base-worker";
+import { BaseWorker } from "./base-worker";
 
-export class DataProcessorWorker
-  extends BaseWorker {
+import { sleep } from "./utils";
 
+export class DataProcessorWorker extends BaseWorker {
   name = "DATA_PROCESSOR";
 
-  async execute(
-    input: WorkerRequest
-  ) {
+  async execute(input: WorkerRequest) {
     try {
-      const processed =
-        input.input.prompt;
+      await sleep(1200);
+
+      const processed = input.input.originalPrompt;
 
       return this.success({
         processedPrompt: processed,
       });
-
-    } catch (error) {
-
-      return this.failure([
-        "Data processing failed",
-      ]);
+    } catch {
+      return this.failure(["Data processing failed"]);
     }
   }
 }
