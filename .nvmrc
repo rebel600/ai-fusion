@@ -1,0 +1,4 @@
+20.20.1
+auto-install-peers=true
+strict-peer-dependencies=false
+shamefully-hoist=true
