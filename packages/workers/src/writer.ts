@@ -1,29 +1,129 @@
-import { WorkerRequest } from "@repo/schemas";
 
-import { LLMGateway } from "@repo/ai";
+import {
+  generateOllamaText,
+} from "@repo/ai";
 
-import { BaseWorker } from "./base-worker";
+interface WriterInput {
+  processorOutput: any;
 
-import { sleep } from "./utils";
+  previousDraft?: any;
 
-export class WriterWorker extends BaseWorker {
-  name = "WRITER";
+  qaFeedback?: any;
+}
 
-  private llm = new LLMGateway();
+export async function writerWorker(
+  input: WriterInput,
+) {
 
-  async execute(input: WorkerRequest) {
-    try {
-      await sleep(2000);
+  const startedAt =
+    Date.now();
 
-      const prompt = `Write content about: ${input.input.processedPrompt}`;
+  try {
 
-      const content = await this.llm.generate("openai", prompt);
+    const prompt = `
+You are an expert AI systems writer.
 
-      return this.success({
-        content,
+TASK:
+${input.processorOutput?.objective}
+
+REQUIREMENTS:
+${JSON.stringify(
+  input.processorOutput
+    ?.requirements || [],
+)}
+
+Write a detailed, structured technical explanation.
+
+Do NOT return JSON.
+Return only plain text.
+`;
+
+    const response =
+      await generateOllamaText({
+        systemPrompt:
+          "You are a technical AI writer.",
+
+        userPrompt:
+          prompt,
       });
-    } catch {
-      return this.failure(["Writer failed"]);
-    }
+
+    return {
+      worker: "WRITER",
+
+      status: "SUCCESS",
+
+      success: true,
+
+      output: {
+        draft:
+          response ||
+          "Failed to generate content.",
+
+        summary:
+          response?.slice(
+            0,
+            180,
+          ) ||
+          "No summary available.",
+
+        revisionApplied:
+          Boolean(
+            input.qaFeedback,
+          ),
+      },
+
+      errors: [],
+
+      metadata: {
+        latencyMs:
+          Date.now() -
+          startedAt,
+
+        model:
+          "qwen2.5-coder:7b",
+
+        provider:
+          "ollama",
+      },
+    };
+
+  } catch (error) {
+
+    return {
+      worker: "WRITER",
+
+      status: "FAILED",
+
+      success: false,
+
+      output: {
+        draft:
+          "Writer failed to generate content.",
+
+        summary:
+          "Writer worker failed.",
+
+        revisionApplied:
+          true,
+      },
+
+      errors: [
+        error instanceof Error
+          ? error.message
+          : "Unknown writer error",
+      ],
+
+      metadata: {
+        latencyMs:
+          Date.now() -
+          startedAt,
+
+        model:
+          "qwen2.5-coder:7b",
+
+        provider:
+          "ollama",
+      },
+    };
   }
 }

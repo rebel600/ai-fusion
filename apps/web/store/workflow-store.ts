@@ -1,20 +1,15 @@
 import { create } from "zustand";
 
-interface WorkflowEvent {
+export interface WorkflowEvent {
   event: string;
-
   payload: any;
-
   timestamp: string;
 }
 
 interface WorkflowMetrics {
   totalWorkflows: number;
-
   retries: number;
-
   failures: number;
-
   completed: number;
 }
 
@@ -25,7 +20,7 @@ interface WorkflowStore {
 
   metrics: WorkflowMetrics;
 
-  addEvent: (event: Omit<WorkflowEvent, "timestamp">) => void;
+  addEvent: (event: { event: string; payload: any }) => void;
 
   clear: () => void;
 }
@@ -37,61 +32,55 @@ export const useWorkflowStore = create<WorkflowStore>((set) => ({
 
   metrics: {
     totalWorkflows: 0,
-
     retries: 0,
-
     failures: 0,
-
     completed: 0,
   },
 
-  addEvent: (event) =>
+  addEvent: (event) => {
     set((state) => {
-      const timestamp = new Date().toLocaleTimeString();
+      const newEvent: WorkflowEvent = {
+        event: event.event,
 
-      const updatedMetrics = {
+        payload: event.payload,
+
+        timestamp: new Date().toLocaleTimeString(),
+      };
+
+      const metrics = {
         ...state.metrics,
       };
 
-      if (
-        event.event === "workflow:stage" &&
-        event.payload.stage === "PROCESSING"
-      ) {
-        updatedMetrics.totalWorkflows += 1;
+      if (event.event === "workflow:stage") {
+        metrics.totalWorkflows += 1;
       }
 
       if (event.event === "workflow:retry") {
-        updatedMetrics.retries += 1;
+        metrics.retries += 1;
       }
 
       if (event.event === "workflow:failed") {
-        updatedMetrics.failures += 1;
+        metrics.failures += 1;
       }
 
       if (event.event === "workflow:completed") {
-        updatedMetrics.completed += 1;
+        metrics.completed += 1;
       }
 
       return {
-        events: [
-          ...state.events,
-
-          {
-            ...event,
-            timestamp,
-          },
-        ],
+        events: [newEvent, ...state.events],
 
         currentStage:
           event.event === "workflow:stage"
             ? event.payload.stage
             : state.currentStage,
 
-        metrics: updatedMetrics,
+        metrics,
       };
-    }),
+    });
+  },
 
-  clear: () =>
+  clear: () => {
     set({
       events: [],
 
@@ -99,12 +88,10 @@ export const useWorkflowStore = create<WorkflowStore>((set) => ({
 
       metrics: {
         totalWorkflows: 0,
-
         retries: 0,
-
         failures: 0,
-
         completed: 0,
       },
-    }),
+    });
+  },
 }));

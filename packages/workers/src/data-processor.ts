@@ -1,23 +1,103 @@
-import { WorkerRequest } from "@repo/schemas";
+export async function dataProcessorWorker(
+  prompt: string,
+) {
 
-import { BaseWorker } from "./base-worker";
+  const startedAt =
+    Date.now();
 
-import { sleep } from "./utils";
+  try {
 
-export class DataProcessorWorker extends BaseWorker {
-  name = "DATA_PROCESSOR";
+    return {
+      worker:
+        "DATA_PROCESSOR",
 
-  async execute(input: WorkerRequest) {
-    try {
-      await sleep(1200);
+      status:
+        "SUCCESS",
 
-      const processed = input.input.originalPrompt;
+      success: true,
 
-      return this.success({
-        processedPrompt: processed,
-      });
-    } catch {
-      return this.failure(["Data processing failed"]);
-    }
+      output: {
+        objective:
+          prompt,
+
+        requirements: [
+          "Generate a detailed response",
+          "Explain orchestration flow",
+          "Maintain structured formatting",
+        ],
+
+        constraints: [],
+
+        ambiguities: [],
+
+        taskType:
+          "technical",
+
+        priority:
+          "normal",
+      },
+
+      errors: [],
+
+      metadata: {
+        latencyMs:
+          Date.now() -
+          startedAt,
+
+        model:
+          "system",
+
+        provider:
+          "local",
+      },
+    };
+
+  } catch (error) {
+
+    return {
+      worker:
+        "DATA_PROCESSOR",
+
+      status:
+        "FAILED",
+
+      success: false,
+
+      output: {
+        objective:
+          "Failed to analyze task",
+
+        requirements: [],
+
+        constraints: [],
+
+        ambiguities: [],
+
+        taskType:
+          "unknown",
+
+        priority:
+          "normal",
+      },
+
+      errors: [
+        error instanceof Error
+          ? error.message
+          : "Unknown processor error",
+      ],
+
+      metadata: {
+        latencyMs:
+          Date.now() -
+          startedAt,
+
+        model:
+          "system",
+
+        provider:
+          "local",
+      },
+    };
   }
 }
+

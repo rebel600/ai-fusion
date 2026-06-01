@@ -1,23 +1,90 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
-import { useWorkflowStore } from "@/store/workflow-store";
+export interface WorkflowEvent {
+  event: string;
+  payload: any;
+  timestamp: string;
+}
 
 export function useWorkflowStream() {
-  const addEvent = useWorkflowStore((s) => s.addEvent);
+
+  const [events, setEvents] =
+    useState<WorkflowEvent[]>([]);
+
+  const [currentStage, setCurrentStage] =
+    useState("CREATED");
 
   useEffect(() => {
-    const source = new EventSource("/api/stream");
 
-    source.onmessage = (event) => {
-      const parsed = JSON.parse(event.data);
+    const source =
+      new EventSource(
+        "/api/stream"
+      );
 
-      addEvent(parsed);
+    source.onopen = () => {
+
+      console.log(
+        "SSE CONNECTED"
+      );
+    };
+
+    source.onmessage = (
+      event
+    ) => {
+
+      try {
+
+        const parsed =
+          JSON.parse(
+            event.data
+          );
+
+        console.log(
+          "EVENT RECEIVED:",
+          parsed
+        );
+
+        const newEvent = {
+
+          ...parsed,
+
+          timestamp:
+            new Date()
+              .toLocaleTimeString(),
+        };
+
+        setEvents((prev) => [
+          newEvent,
+          ...prev,
+        ]);
+
+        if (
+          parsed.event ===
+          "workflow:stage"
+        ) {
+
+          setCurrentStage(
+            parsed.payload.stage
+          );
+        }
+
+      } catch (error) {
+
+        console.error(error);
+      }
     };
 
     return () => {
+
       source.close();
     };
-  }, [addEvent]);
+
+  }, []);
+
+  return {
+    events,
+    currentStage,
+  };
 }

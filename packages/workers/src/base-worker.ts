@@ -16,6 +16,8 @@ export abstract class BaseWorker {
     return {
       worker: this.name as any,
 
+      status: "SUCCESS",
+
       success: true,
 
       output,
@@ -33,6 +35,8 @@ export abstract class BaseWorker {
   ): WorkerResponse {
     return {
       worker: this.name as any,
+
+      status: "FAILED",
 
       success: false,
 

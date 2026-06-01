@@ -14,11 +14,8 @@ export async function GET() {
 
         let closed = false;
 
-        const listeners:
-          Array<() => void> = [];
-
         const safeSend = (
-          data: string
+          data: any
         ) => {
 
           if (closed) {
@@ -28,7 +25,11 @@ export async function GET() {
           try {
 
             controller.enqueue(
-              encoder.encode(data)
+
+              encoder.encode(
+
+                `data: ${JSON.stringify(data)}\n\n`
+              )
             );
 
           } catch {
@@ -37,64 +38,84 @@ export async function GET() {
           }
         };
 
-        const sendEvent = (
-          event: string,
-          payload: any
-        ) => {
+        // Initial handshake
+        safeSend({
 
-          safeSend(
-            `data: ${JSON.stringify({
-              event,
-              payload,
-            })}\n\n`
-          );
-        };
+          event:
+            "stream:connected",
+
+          payload: {
+            ok: true,
+          },
+        });
 
         const events = [
+
           "workflow:stage",
+
           "worker:start",
+
           "worker:complete",
+
           "workflow:retry",
+
           "workflow:revision",
+
+          "workflow:forced-approval",
+
           "workflow:completed",
-          "workflow:error",
+
           "workflow:failed",
+
+          "workflow:error",
         ];
 
-        events.forEach(
-          (eventName) => {
+        const listeners =
+          events.map((eventName) => {
 
-            const handler = (
-              payload: any
-            ) => {
+            const handler =
+              (payload: any) => {
 
-              sendEvent(
-                eventName,
-                payload
-              );
-            };
+                safeSend({
+
+                  event:
+                    eventName,
+
+                  payload,
+                });
+              };
 
             globalEventBus.on(
               eventName,
               handler
             );
 
-            listeners.push(() => {
-
-              globalEventBus.off(
-                eventName,
-                handler
-              );
-            });
-          }
-        );
+            return {
+              eventName,
+              handler,
+            };
+          });
 
         const heartbeat =
           setInterval(() => {
 
-            safeSend(
-              `: heartbeat\n\n`
-            );
+            if (closed) {
+              return;
+            }
+
+            try {
+
+              controller.enqueue(
+
+                encoder.encode(
+                  `: heartbeat\n\n`
+                )
+              );
+
+            } catch {
+
+              closed = true;
+            }
 
           }, 15000);
 
@@ -107,20 +128,31 @@ export async function GET() {
           );
 
           listeners.forEach(
-            (cleanup) =>
-              cleanup()
+
+            ({
+              eventName,
+              handler,
+            }) => {
+
+              globalEventBus.off(
+                eventName,
+                handler
+              );
+            }
           );
         };
       },
     });
 
   return new Response(stream, {
+
     headers: {
+
       "Content-Type":
         "text/event-stream",
 
       "Cache-Control":
-        "no-cache, no-transform",
+        "no-cache",
 
       Connection:
         "keep-alive",

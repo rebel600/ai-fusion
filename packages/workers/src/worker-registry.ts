@@ -1,48 +1,23 @@
-import {
-  WorkerName,
-} from "@repo/schemas";
+import type { WorkerName } from "@repo/schemas";
 
-import { BaseWorker }
-from "./base-worker";
+import { dataProcessorWorker } from "./data-processor";
+import { finalizerWorker } from "./finalizer";
+import { formatLogicWorker } from "./format-logic";
+import { qaWorker } from "./qa";
+import { writerWorker } from "./writer";
 
-import {
-  DataProcessorWorker,
-} from "./data-processor";
-
-import {
-  WriterWorker,
-} from "./writer";
-
-import {
-  ApprovalWorker,
-} from "./approvals";
-
-import {
-  FinalizerWorker,
-} from "./finalizer";
+type WorkerExecutor = (input: any) => Promise<any>;
 
 export class WorkerRegistry {
-  private workers:
-    Record<
-      WorkerName,
-      BaseWorker
-    > = {
-      DATA_PROCESSOR:
-        new DataProcessorWorker(),
+  private workers: Record<WorkerName, WorkerExecutor> = {
+    DATA_PROCESSOR: dataProcessorWorker,
+    WRITER: writerWorker,
+    FORMAT_LOGIC: formatLogicWorker,
+    APPROVALS: qaWorker,
+    FINALIZER: finalizerWorker,
+  };
 
-      WRITER:
-        new WriterWorker(),
-
-      QA:
-        new ApprovalWorker(),
-
-      FINALIZER:
-        new FinalizerWorker(),
-    };
-
-  getWorker(
-    name: WorkerName
-  ) {
+  getWorker(name: WorkerName) {
     return this.workers[name];
   }
 }

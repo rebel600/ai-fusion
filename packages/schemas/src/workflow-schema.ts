@@ -4,7 +4,8 @@ export const WorkflowStageSchema = z.enum([
   "CREATED",
   "PROCESSING",
   "WRITING",
-  "QA",
+  "FORMAT_LOGIC",
+  "APPROVALS",
   "FINALIZING",
   "COMPLETED",
   "FAILED",
@@ -17,22 +18,30 @@ export const WorkflowStatusSchema = z.enum([
   "ERROR",
 ]);
 
-export const WorkflowSchema = z.object({
-  workflowId: z.string(),
-  userPrompt: z.string(),
+export const WorkerOutputSchema = z.record(z.string(), z.any());
 
-  stage: WorkflowStageSchema,
+export const WorkflowStateSchema = z.object({
+  workflowId: z.string(),
+
+  currentStage: WorkflowStageSchema,
+
   status: WorkflowStatusSchema,
 
+  revisionCount: z.number(),
+
+  routeHistory: z.array(z.string()),
+
+  workerOutputs: WorkerOutputSchema.optional(),
+
+  errors: z.array(z.string()),
+
   createdAt: z.date(),
+
   updatedAt: z.date(),
 });
 
-export type Workflow =
-  z.infer<typeof WorkflowSchema>;
+export type WorkflowState = z.infer<typeof WorkflowStateSchema>;
 
-export type WorkflowStage =
-  z.infer<typeof WorkflowStageSchema>;
+export type WorkflowStage = z.infer<typeof WorkflowStageSchema>;
 
-export type WorkflowStatus =
-  z.infer<typeof WorkflowStatusSchema>;
+export type WorkflowStatus = z.infer<typeof WorkflowStatusSchema>;

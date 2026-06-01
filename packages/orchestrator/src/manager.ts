@@ -1,471 +1,243 @@
 import {
-  MasterState,
-  WorkerRequest,
-} from "@repo/schemas";
-
-import {
-  WorkflowEngine,
-} from "./workflow-engine";
-
-import {
-  RetryEngine,
-} from "./retry-engine";
-
-import {
-  CircuitBreaker,
-} from "./circuit-breaker";
-
-import {
-  globalEventBus,
-} from "./event-emitter";
-
-import {
-  WorkerRegistry,
+  dataProcessorWorker,
+  writerWorker,
+  formatLogicWorker,
+  qaWorker,
+  finalizerWorker,
 } from "@repo/workers";
 
-export class Manager {
+import { globalEventBus } from "./event-bus";
 
-  private workflowEngine =
-    new WorkflowEngine();
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  private registry =
-    new WorkerRegistry();
+export class WorkflowManager {
+  private events = globalEventBus;
 
-  private retryEngine =
-    new RetryEngine();
+  async run(state: any) {
+    const startedAt = Date.now();
 
-  private breaker =
-    new CircuitBreaker();
+    state.status = "RUNNING";
 
-  private getWorkerForStage(
-    stage: string
-  ) {
+    state.workerOutputs = state.workerOutputs || {};
 
-    switch (stage) {
-
-      case "PROCESSING":
-        return "DATA_PROCESSOR";
-
-      case "WRITING":
-        return "WRITER";
-
-      case "QA":
-        return "QA";
-
-      case "FINALIZING":
-        return "FINALIZER";
-
-      default:
-        return null;
-    }
-  }
-
-  private getNextStage(
-    stage: string
-  ) {
-
-    switch (stage) {
-
-      case "CREATED":
-        return "PROCESSING";
-
-      case "PROCESSING":
-        return "WRITING";
-
-      case "WRITING":
-        return "QA";
-
-      case "QA":
-        return "FINALIZING";
-
-      case "FINALIZING":
-        return "COMPLETED";
-
-      default:
-        return "COMPLETED";
-    }
-  }
-
-  async run(
-    state: MasterState
-  ) {
-
-    let currentState = state;
-
-    let shouldAdvanceStage =
-      true;
+    state.revisionCount = state.revisionCount || 0;
 
     try {
+      const workflowId = state.workflowId;
 
-      while (
-        currentState.currentStage !==
-        "COMPLETED"
-      ) {
+      // DATA PROCESSOR
 
-        this.breaker
-          .assertNotTripped(
-            currentState
-          );
+      this.events.emit("workflow:stage", {
+        workflowId,
 
-        // =========================
-        // STAGE TRANSITION
-        // =========================
+        stage: "DATA_PROCESSOR",
+      });
 
-        if (shouldAdvanceStage) {
+      await sleep(150);
 
-          const nextStage =
-            this.getNextStage(
-              currentState.currentStage
-            );
-
-          currentState =
-            this.workflowEngine
-              .transitionStage(
-                currentState,
-                nextStage
-              );
-
-          globalEventBus.emit(
-            "workflow:stage",
-
-            {
-              workflowId:
-                currentState.workflowId,
-
-              stage:
-                currentState.currentStage,
-            }
-          );
-        }
-
-        shouldAdvanceStage =
-          true;
-
-        // =========================
-        // COMPLETION CHECK
-        // =========================
-
-        if (
-          currentState.currentStage ===
-          "COMPLETED"
-        ) {
-
-          break;
-        }
-
-        // =========================
-        // WORKER RESOLUTION
-        // =========================
-
-        const workerName =
-          this.getWorkerForStage(
-            currentState.currentStage
-          );
-
-        if (!workerName) {
-          continue;
-        }
-
-        globalEventBus.emit(
-          "worker:start",
-
-          {
-            workflowId:
-              currentState.workflowId,
-
-            worker:
-              workerName,
-          }
-        );
-
-        const worker =
-          this.registry.getWorker(
-            workerName
-          );
-
-        const request:
-          WorkerRequest = {
-
-          workflowId:
-            currentState.workflowId,
-
-          worker:
-            workerName,
-
-          input:
-            currentState.workerOutputs || {},
-
-          metadata: {
-            retryCount:
-              currentState.revisionCount,
-
-            timestamp:
-              new Date(),
-          },
-        };
-
-        const response =
-          await worker.execute(
-            request
-          );
-
-        globalEventBus.emit(
-          "worker:complete",
-
-          {
-            workflowId:
-              currentState.workflowId,
-
-            worker:
-              workerName,
-
-            success:
-              response.success,
-          }
-        );
-
-        // =========================
-        // FAILURE HANDLING
-        // =========================
-
-        if (!response.success) {
-
-          const canRetry =
-            this.retryEngine
-              .canRetry(
-                currentState
-                  .revisionCount
-              );
-
-          if (!canRetry) {
-
-            currentState = {
-              ...currentState,
-
-              currentStage:
-                "FAILED",
-
-              status:
-                "ERROR",
-
-              errors: [
-                ...currentState.errors,
-
-                ...response.errors,
-              ],
-
-              updatedAt:
-                new Date(),
-            };
-
-            globalEventBus.emit(
-              "workflow:failed",
-
-              {
-                workflowId:
-                  currentState.workflowId,
-
-                errors:
-                  response.errors,
-              }
-            );
-
-            break;
-          }
-
-          currentState = {
-            ...currentState,
-
-            revisionCount:
-              this.retryEngine
-                .increment(
-                  currentState
-                    .revisionCount
-                ),
-
-            updatedAt:
-              new Date(),
-          };
-
-          globalEventBus.emit(
-            "workflow:retry",
-
-            {
-              workflowId:
-                currentState.workflowId,
-
-              revisionCount:
-                currentState
-                  .revisionCount,
-            }
-          );
-
-          // IMPORTANT:
-          // Retry same stage again
-          // without advancing.
-
-          shouldAdvanceStage =
-            false;
-
-          continue;
-        }
-
-        // =========================
-        // QA REVISION LOOP
-        // =========================
-
-        if (
-          workerName === "QA"
-        ) {
-
-          const approved =
-            response.output
-              .approved;
-
-          if (!approved) {
-
-            currentState = {
-              ...currentState,
-
-              revisionCount:
-                currentState
-                  .revisionCount + 1,
-
-              updatedAt:
-                new Date(),
-            };
-
-            globalEventBus.emit(
-              "workflow:revision",
-
-              {
-                workflowId:
-                  currentState.workflowId,
-
-                revisionCount:
-                  currentState
-                    .revisionCount,
-              }
-            );
-
-            currentState =
-              this.workflowEngine
-                .transitionStage(
-                  currentState,
-                  "WRITING"
-                );
-
-            globalEventBus.emit(
-              "workflow:stage",
-
-              {
-                workflowId:
-                  currentState.workflowId,
-
-                stage:
-                  "WRITING",
-              }
-            );
-
-            shouldAdvanceStage =
-              false;
-
-            continue;
-          }
-        }
-
-        // =========================
-        // SUCCESSFUL OUTPUT
-        // =========================
-
-        currentState = {
-          ...currentState,
-
-          workerOutputs: {
-            ...(currentState.workerOutputs || {}),
-
-            [workerName]:
-              response.output,
-          },
-
-          routeHistory: [
-            ...currentState.routeHistory,
-
-            workerName,
-          ],
-
-          status:
-            "RUNNING",
-
-          updatedAt:
-            new Date(),
-        };
-      }
-
-      // =========================
-      // FINAL STATE HANDLING
-      // =========================
-
-      if (
-        currentState.currentStage ===
-        "COMPLETED"
-      ) {
-
-        globalEventBus.emit(
-          "workflow:completed",
-
-          {
-            workflowId:
-              currentState.workflowId,
-          }
-        );
-
-        return {
-          ...currentState,
-
-          status:
-            "SUCCESS",
-        };
-      }
-
-      return currentState;
-
-    } catch (error) {
-
-      globalEventBus.emit(
-        "workflow:error",
-
-        {
-          workflowId:
-            currentState.workflowId,
-
-          error:
-            error instanceof Error
-              ? error.message
-              : "Unknown orchestration error",
-        }
+      const dataProcessorResponse = await dataProcessorWorker(
+        state.workerOutputs?.originalPrompt,
       );
 
-      return {
-        ...currentState,
+      state.workerOutputs.DATA_PROCESSOR = dataProcessorResponse.output;
 
-        currentStage:
-          "FAILED",
+      state.routeHistory.push("DATA_PROCESSOR");
 
-        status:
-          "ERROR",
+      // WRITER
 
-        errors: [
-          ...currentState.errors,
+      this.events.emit("workflow:stage", {
+        workflowId,
 
-          error instanceof Error
-            ? error.message
-            : "Unknown orchestration error",
-        ],
+        stage: "WRITER",
+      });
 
-        updatedAt:
-          new Date(),
+      await sleep(150);
+
+      let writerResponse = await writerWorker({
+        processorOutput: state.workerOutputs?.DATA_PROCESSOR,
+
+        previousDraft: state.workerOutputs?.WRITER,
+
+        qaFeedback: state.workerOutputs?.QA,
+      });
+
+      state.workerOutputs.WRITER = writerResponse.output;
+
+      state.routeHistory.push("WRITER");
+
+      // FORMAT LOGIC
+
+      this.events.emit("workflow:stage", {
+        workflowId,
+
+        stage: "FORMAT_LOGIC",
+      });
+
+      await sleep(150);
+
+      const formatResponse = await formatLogicWorker(
+        state.workerOutputs?.WRITER,
+      );
+
+      state.workerOutputs.FORMAT_LOGIC = formatResponse.output;
+
+      state.routeHistory.push("FORMAT_LOGIC");
+
+      // QA LOOP
+
+      let qaApproved = false;
+
+      let retryCount = 0;
+
+      while (!qaApproved && retryCount < 3) {
+        this.events.emit("workflow:stage", {
+          workflowId,
+
+          stage: "QA",
+        });
+
+        await sleep(150);
+
+        const qaResponse = await qaWorker({
+          formattedOutput: state.workerOutputs?.FORMAT_LOGIC,
+
+          revisionCount: retryCount,
+
+          originalPrompt: state.workerOutputs?.originalPrompt,
+        });
+
+        state.workerOutputs.QA = qaResponse.output;
+
+        state.routeHistory.push("QA");
+
+        qaApproved = qaResponse.output?.approved;
+
+        if (!qaApproved) {
+          this.events.emit("workflow:retry", {
+            workflowId,
+
+            retryCount: retryCount + 1,
+
+            reason: qaResponse.output?.feedback || [],
+          });
+
+          retryCount++;
+
+          state.revisionCount = retryCount;
+
+          state.status = "RETRYING";
+
+          this.events.emit("workflow:status", {
+            workflowId,
+
+            status: "RETRYING",
+
+            retryCount,
+          });
+
+          writerResponse = await writerWorker({
+            processorOutput: state.workerOutputs?.DATA_PROCESSOR,
+
+            previousDraft: state.workerOutputs?.WRITER,
+
+            qaFeedback: qaResponse.output,
+          });
+
+          state.workerOutputs.WRITER = writerResponse.output;
+
+          state.routeHistory.push("WRITER");
+
+          const retryFormatResponse = await formatLogicWorker(
+            state.workerOutputs?.WRITER,
+          );
+
+          state.workerOutputs.FORMAT_LOGIC = retryFormatResponse.output;
+
+          state.routeHistory.push("FORMAT_LOGIC");
+        }
+      }
+
+      // CIRCUIT BREAKER
+
+      if (!qaApproved) {
+        this.events.emit("workflow:circuit-breaker", {
+          workflowId,
+
+          maxRetries: 3,
+
+          strategy: "FAIL_WORKFLOW",
+        });
+
+        state.currentStage = "FAILED";
+
+        state.status = "CIRCUIT_BREAKER";
+
+        state.errors.push("QA approval failed after maximum retries.");
+
+        return state;
+      }
+
+      // FINALIZER
+
+      this.events.emit("workflow:stage", {
+        workflowId,
+
+        stage: "FINALIZER",
+      });
+
+      await sleep(150);
+
+      const finalizerResponse = await finalizerWorker({
+        writerOutput: state.workerOutputs?.WRITER,
+
+        formattedOutput: state.workerOutputs?.FORMAT_LOGIC,
+
+        approvalOutput: state.workerOutputs?.QA,
+
+        qaOutput: state.workerOutputs?.QA,
+
+        revisionCount: state.revisionCount,
+      });
+
+      state.workerOutputs.FINALIZER = finalizerResponse.output;
+
+      state.routeHistory.push("FINALIZER");
+
+      // SYSTEM METRICS
+
+      state.workerOutputs.SYSTEM = {
+        executionTimeMs: Date.now() - startedAt,
+
+        executionTimeSeconds: ((Date.now() - startedAt) / 1000).toFixed(2),
       };
+
+      state.currentStage = "COMPLETED";
+
+      state.status = "SUCCESS";
+
+      state.updatedAt = new Date().toISOString();
+
+      this.events.emit("workflow:completed", {
+        workflowId,
+
+        state,
+      });
+
+      return state;
+    } catch (error: any) {
+      state.currentStage = "FAILED";
+
+      state.status = "FAILED";
+
+      state.errors.push(error?.message || "Unknown workflow error");
+
+      this.events.emit("workflow:error", {
+        workflowId: state.workflowId,
+
+        error: error?.message,
+      });
+
+      return state;
     }
   }
 }

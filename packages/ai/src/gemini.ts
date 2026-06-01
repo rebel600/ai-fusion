@@ -1,24 +1,34 @@
-import {
-  GoogleGenerativeAI,
-} from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI =
-  new GoogleGenerativeAI(
-    process.env.GEMINI_API_KEY!
-  );
+export async function generateGeminiText(params: {
+  systemPrompt: string;
 
-export class GeminiProvider {
-  async generate(
-    prompt: string
-  ) {
-    const model =
-      genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-      });
+  userPrompt: string;
+}) {
+  const apiKey = process.env.GEMINI_API_KEY;
 
-    const result =
-      await model.generateContent(prompt);
-
-    return result.response.text();
+  if (!apiKey) {
+    throw new Error("Gemini provider not configured");
   }
+
+  const client = new GoogleGenerativeAI(apiKey);
+
+  const model = client.getGenerativeModel({
+    model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  });
+
+  const prompt = `
+SYSTEM:
+${params.systemPrompt}
+
+USER:
+${params.userPrompt}
+`;
+
+  const result = await model.generateContent(prompt);
+
+  return result.response.text();
 }
