@@ -1,31 +1,18 @@
-import {
-  MasterState,
-  WorkflowStage,
-} from "@repo/schemas";
-
-import { StateMachine } from "./state-machine";
+import { WorkflowState, WorkflowStage } from "@repo/schemas";
 
 export class WorkflowEngine {
-  private stateMachine: StateMachine;
-
-  constructor() {
-    this.stateMachine =
-      new StateMachine();
-  }
-
-  transitionStage(
-    state: MasterState,
-    nextStage: WorkflowStage
-  ): MasterState {
-    this.stateMachine.assertTransition(
-      state.currentStage,
-      nextStage
-    );
-
+  transitionStage(state: WorkflowState, stage: WorkflowStage): WorkflowState {
     return {
       ...state,
 
-      currentStage: nextStage,
+      currentStage: stage,
+
+      status:
+        stage === "COMPLETED"
+          ? "SUCCESS"
+          : stage === "FAILED"
+            ? "ERROR"
+            : "RUNNING",
 
       updatedAt: new Date(),
     };

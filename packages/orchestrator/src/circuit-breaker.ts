@@ -1,32 +1,19 @@
-import {
-  MasterState,
-} from "@repo/schemas";
-
 export class CircuitBreaker {
+  private failureCount = 0;
 
-  private maxRouteHistory = 15;
+  private FAILURE_LIMIT = 5;
 
-  isTripped(
-    state: MasterState
-  ) {
-
-    return (
-      state.routeHistory.length >=
-      this.maxRouteHistory
-    );
+  recordFailure() {
+    this.failureCount++;
   }
 
-  assertNotTripped(
-    state: MasterState
-  ) {
+  reset() {
+    this.failureCount = 0;
+  }
 
-    if (
-      this.isTripped(state)
-    ) {
-
-      throw new Error(
-        "Circuit breaker triggered: workflow exceeded safe execution limit"
-      );
+  assertNotTripped() {
+    if (this.failureCount >= this.FAILURE_LIMIT) {
+      throw new Error("Circuit breaker tripped");
     }
   }
 }

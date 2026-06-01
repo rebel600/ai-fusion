@@ -10,9 +10,11 @@ const validTransitions: Record<
 
   PROCESSING: ["WRITING"],
 
-  WRITING: ["QA"],
+  WRITING: ["FORMAT_LOGIC"],
 
-  QA: [
+  FORMAT_LOGIC: ["APPROVALS"],
+
+  APPROVALS: [
     "FINALIZING",
     "WRITING",
     "FAILED",

@@ -1,13 +1,41 @@
 import {
   WorkflowStage,
-  WorkerName,
 } from "@repo/schemas";
 
 export class Router {
 
-  getNextWorker(
+  getNextStage(
+    currentStage: WorkflowStage
+  ): WorkflowStage {
+
+    switch (currentStage) {
+
+      case "CREATED":
+        return "PROCESSING";
+
+      case "PROCESSING":
+        return "WRITING";
+
+      case "WRITING":
+        return "FORMAT_LOGIC";
+
+      case "FORMAT_LOGIC":
+        return "APPROVALS";
+
+      case "APPROVALS":
+        return "FINALIZING";
+
+      case "FINALIZING":
+        return "COMPLETED";
+
+      default:
+        return "FAILED";
+    }
+  }
+
+  getWorkerForStage(
     stage: WorkflowStage
-  ): WorkerName | null {
+  ) {
 
     switch (stage) {
 
@@ -17,40 +45,19 @@ export class Router {
       case "WRITING":
         return "WRITER";
 
-      case "QA":
-        return "QA";
+      case "FORMAT_LOGIC":
+        return "FORMAT_LOGIC";
+
+      case "APPROVALS":
+        return "APPROVALS";
 
       case "FINALIZING":
         return "FINALIZER";
 
       default:
-        return null;
-    }
-  }
-
-  getNextStage(
-    current: WorkflowStage
-  ): WorkflowStage {
-
-    switch (current) {
-
-      case "CREATED":
-        return "PROCESSING";
-
-      case "PROCESSING":
-        return "WRITING";
-
-      case "WRITING":
-        return "QA";
-
-      case "QA":
-        return "FINALIZING";
-
-      case "FINALIZING":
-        return "COMPLETED";
-
-      default:
-        return current;
+        throw new Error(
+          `No worker mapped for stage: ${stage}`
+        );
     }
   }
 }
